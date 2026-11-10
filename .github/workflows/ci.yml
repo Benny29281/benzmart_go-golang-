@@ -1,0 +1,39 @@
+name: Go CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_only
+          MYSQL_DATABASE: benzmart_auth_test
+          MYSQL_USER: benzmart
+          MYSQL_PASSWORD: benzmart_ci_only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot_ci_only"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      BENZMART_TEST_MYSQL_DSN: benzmart:benzmart_ci_only@tcp(127.0.0.1:3306)/benzmart_auth_test?parseTime=true&loc=UTC&timeout=3s
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - run: go mod tidy
+      - run: git diff --exit-code -- go.mod go.sum
+      - run: test -z "$(gofmt -l cmd internal migrations)"
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go build ./cmd/monolith
+      - run: docker compose config --quiet
+        env:
+          JWT_SECRET: ci-only-placeholder-secret-at-least-32-bytes
